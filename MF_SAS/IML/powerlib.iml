@@ -1,0 +1,1723 @@
+*                        November 1, 1992                            *;
+**********************************************************************;
+*23456789A123456789B123456789C123456789D123456789E123456789F123456789G;
+**********************************************************************;
+*  This SAS code, used inside PROC IML via an INCLUDE statement,     *;
+*  performs a power analysis of multivariate linear hypotheses       *;
+*  of the form C*B*U - THETA0 = 0. The associated model is Y=X*B+E.  *;
+*  Users must enter PROC IML to create the following matrices.       *;
+*                                                                    *;
+*  Note: Vectors may be entered as rows or columns.                  *;
+*                                                                    *;
+*  A) REQUIRED MATRICES                                              *;
+*                                                                    *;
+*    (1) ESSENCEX, the essence design matrix.  Users unfamiliar with *;
+*        this matrix may simply enter the full design matrix and     *;
+*        specify that REPN below be equal to 1.                      *;
+*    (2) SIGMA, the hypothesized covariance matrix                   *;
+*    (3) BETA, the matrix of hypothesized regression coefficients    *;
+*    (4) C, "between" subject contrast for pre-multiplying BETA      *;
+*                                                                    *;
+*  WARNING:  ESSENCEX, C, and U must be full rank.                   *;
+*            U`*SIGMA*U must besymmetric and positive definite.      *;
+*            For univariate repeated measures,                       *;
+*            U should be proportional to an orthonormal matrix.      *;
+*                                                                    *;
+*  B) OPTIONAL MATRICES                                              *;
+*    (1) REPN, (vector), the # of times each row of ESSENCEX is      *;
+*        duplicated. Default of {1}.                                 *;
+*    (2) U, "within" subject contrast for post-multiplying BETA      *;
+*        Default of I(p), where p=NCOL(BETA).                        *;
+*    (3) THETA0, the matrix of constants to be subtracted from       *;
+*        C*BETA*U (CBU). Default matrix of zeroes.                   *;
+*    (4) ALPHA,  (vector), the Type I error rate (test size).        *;
+*        Default of .05.                                             *;
+*    (5) SIGSCAL, (vector), multipliers of SIGMA.                    *;
+*        Default of {1}.                                             *;
+*    (6) RHOSCAL, (vector), multipliers of RHO (correlation matrix)  *;
+*        computed internally from SIGMA).                            *;
+*        Default of {1}.                                             *;
+*    (7) BETASCAL, (vector), multipliers of BETA.                    *;
+*        Default of {1}.                                             *;
+*    (8) ROUND, (scalar) # of places to which power values will      *;
+*        be rounded. Default of 3.                                   *;
+*    (9) TOLERANC, (scalar)  value not tolerated, numeric zero,      *;
+*        used for checking singularity, division problems, etc.      *;
+*        singularity. Default of 1E-12.                              *;
+*   (10) OPT_ON                                                      *;
+*        OPT_OFF, (vectors), users can specify the options they wish *;
+*        to turn on or off. The possible options are as follows:     *;
+*                                                                    *;
+*          a) Power calculations                  Default            *;
+*             HLT, Hotelling-Lawley trace           off              *;
+*             PBT, Pillai-Bartlett trace            off              *;
+*             WLK, Wilk's Lambda                    on               *;
+*             UNI, uncorrected univariate                            *;
+*                  repeated measures                off              *;
+*             UNIGG, Geisser-Greenhouse             on               *;
+*             UNIHF, Huynh-Feldt                    off              *;
+*            *COLLAPSE, special case                on               *;
+*                                                                    *;
+*            *With rank(U)=1 powers of all tests coincide.           *;
+*             The COLLAPSE option produces one column of power       *;
+*             calculations labeled "POWER" instead of separate       *;
+*             columns for WLK, HLT, UNI, etc.                        *;
+*                                                                    *;
+*             With rank(C)=1 and rank(U)>1, powers of all 3          *;
+*             multivariate statistics (WLK HLT PBT) coincide.        *;
+*             The COLLAPSE option produces one column for all 3.     *;
+*             UNI, UNIGG, and UNIHF powers calculated if requested.  *;
+*                                                                    *;
+*             NONCEN_N, multiply noncentrality by                    *;
+*                       N/(N-rk(X)) if min(rk(C),rk(U))>1            *;
+*                       for multivariate tests                       *;
+*                       (O'Brien & Shieh, 1992)     off              *;
+*                                                                    *;
+*           b) Print/options for output power matrix (SAS dataset)   *;
+*              TOTAL_N,  total number observations  on               *;
+*              SIGSCAL,  multiplier for SIGMA       on               *;
+*              RHOSCAL,  multiplier for RHO         on               *;
+*              BETASCAL, multiplier for BETA        on               *;
+*              ALPHA,    size of test               on               *;
+*              CASE,     row # of matrix            on               *;
+*              MAXRHOSQ, max canonical rho squared  off              *;
+*                                                                    *;
+*           c) Print options - additional matrices                   *;
+*              BETA, beta matrix                    on               *;
+*              SIGMA, variance-covariance matrix    on               *;
+*              RHO, correlation matrix              on               *;
+*              C, "between" subjects contrast       on               *;
+*              U, "within" subject contrast         on               *;
+*              THETA0, constant to compare to CBU   on, if  ^= 0     *;
+*              CBETAU, value of initial C*BETA*U    on               *;
+*              RANKX, rank of X                     off              *;
+*              RANKC, rank of C                     off              *;
+*              RANKU, rank of U                     off              *;
+*                                                                    *;
+*           d) Power data options                                    *;
+*              NOPRINT, printed output suppressed   off              *;
+*              DS , request output SAS dataset      off              *;
+*                                                                    *;
+*           e) WARN, allows warning messages        on               *;
+*              to print.                                             *;
+*                                                                    *;
+*                                                                    *;
+*    (11) DSNAME, (1 row, 2-3 cols), name of output SAS data file.   *;
+*         Default WORK.PWRDT###.                                     *;
+*                                                                    *;
+* C) SAS DATA FILE                                                   *;
+*                                                                    *;
+*   If the DS option is selected, the output data file will contain  *;
+*   all options requested in a) and b). The user can name the data   *;
+*   file by defining the matrix DSNAME= { libref dataset }. For      *;
+*   example, if DSNAME = {IN1 MYDATA}, the output data file will be  *;
+*   called IN1.MYDATA. IN1 refers to a library defined by a DD       *;
+*   statement or a LIBNAME statement.                                *;
+*                                                                    *;
+*   When using a library other than WORK as the default, define      *;
+*   DSNAME = {libref dataset defaultlib};                            *;
+*                                                                    *;
+*   If DSNAME is not defined or if the "dataset" already exists in   *;
+*   the library specified by "libref", a default file name is used.  *;
+*   The default file names are numbered and of the form PWRDT###     *;
+*   (where ### is a number). The program scans the library for the   *;
+*   largest numbered data file and assigns the next number to the new*;
+*   data file. The maximum ### is 999.If PWRDT999 exists no more data*;
+*   files can be created.                                            *;
+*                                                                    *;
+*   NOTE: The program uses the name _PWRDTMP as an intermediate      *;
+*   dataset. If this dataset already exists in the specified library *;
+*   no datasets can be created.                                      *;
+*                                                                    *;
+**********************************************************************;
+
+                  *****MODULE DEFINITIONS*****;
+
+**NOTE: The modules used by the MAIN CODE are defined first.       ***;
+
+***********************************************************************
+*                      _INPTCHK                                       *
+*                                                                     *
+*  This module performs a number of checks on the user-supplied data. *
+**********************************************************************;
+
+START _INPTCHK(CHECKER,_R, _A, _B, _S)
+      GLOBAL (ESSENCEX, BETA, SIGMA, C, U, THETA0, TOLERANC, SIGSCAL);
+
+   *_______________________________________________________________*
+    INPUTS
+    1) User or program supplied -GLOBAL
+       ESSENCEX, the essence design matrix.
+       SIGMA, the hypothesized variance-covariance matrix
+       BETA, the matrix of hypothesized regression coefficients
+       U, the matrix post-multiplying BETA
+       C, the matrix pre-multiplying BETA
+       THETA0, the matrix of constants to be subtracted from CBU
+       TOLERANC, value not tolerated, numeric zero
+       SIGSCAL, vector of scaling values for covariance matrix
+
+    2) Program supplied
+       _R, rank of design matrix, X
+       _A, rank of "between" subject contrast matrix, C
+       _B, rank of "within" subject contrast matrix, U
+       _S, minimum of _A and _B
+    OUTPUTS
+       CHECKER=0 if no error, 1 if error present
+   *_______________________________________________________________*;
+
+
+   CHECKER = 0;
+   IF MIN(VECDIAG(SIGMA))<=TOLERANC THEN DO;
+      CHECKER=1;
+      PRINT "At least one variance <=TOLERANC. Check SIGMA.";
+      PRINT SIGMA;
+      END;
+   IF (NROW(U) ^= NROW(SIGMA)) THEN DO;
+      CHECKER = 1;
+      PRINT "Number of rows U not equal to number of rows of SIGMA.";
+      PRINT U,,,,, SIGMA;
+      END;
+   IF (NCOL(C) ^= NROW(BETA)) THEN DO;
+      CHECKER = 1;
+      PRINT "# of columns of C not equal to number of rows of BETA.";
+      PRINT C,,,,, BETA;
+      END;
+   IF (NCOL(BETA) ^= NROW(U)) THEN DO;
+      CHECKER = 1;
+      PRINT "# of columns of BETA not equal to number of rows of U.";
+      PRINT BETA,,,,, U;
+      END;
+   IF (_R ^= NROW(BETA)) THEN DO;
+      CHECKER = 1;
+      PRINT "# of columns of X not equal to number of rows of BETA.";
+      PRINT ESSENCEX,,,,, BETA;
+      END;
+   IF (_A > NCOL(C)) THEN DO;
+      CHECKER = 1;
+      PRINT "# of rows of C greater than number of columns of C.";
+      PRINT C;
+      END;
+   IF (_B > NROW(U)) THEN DO;
+      CHECKER = 1;
+      PRINT "# of columns of U greater than number of rows of U.";
+      PRINT U;
+      END;
+   IF (NROW(THETA0) > 0) THEN IF (NROW(THETA0) ^= _A) THEN DO;
+      CHECKER = 1;
+      PRINT "The THETA0 matrix does not conform to CBU.";
+      PRINT THETA0;
+      PRINT "#Rows of CBU = " _A;
+      END;
+   IF (NROW(THETA0) > 0) THEN IF (NCOL(THETA0) ^= _B) THEN DO;
+      CHECKER = 1;
+      PRINT "The THETA0 matrix does not conform to CBU.";
+      PRINT THETA0;
+      PRINT "#Cols of CBU = " _B;
+      END;
+   IF MIN(SIGSCAL)<=TOLERANC THEN DO;
+      CHECKER = 1;
+      PRINT "smallest value in SIGSCAL <= TOLERANC (too small)";
+      PRINT SIGSCAL TOLERANC;
+      END;
+
+FINISH;  *_INPTCHK;
+
+*********************************************************************;
+*                   _OPTCHK                                          *
+*                                                                   *
+* Check to see if selected options are valid requests.              *
+*********************************************************************;
+
+START _OPTCHK(CHECKER,
+             _PG1LABL, _PWRLABL, _PRTLABL, _DATLABL,_WRNLABL,_NONLABL,
+             _OPT_ON, _OPT_OFF);
+
+   *_______________________________________________________________*
+    INPUTS
+    1) Program supplied
+       _PG1LABL, (column) options for printing matrices
+       _PWRLABL, (column) options for power calculations
+       _PRTLABL, (column) options for output power matrix
+       _DATLABL, (column) options for power data output
+       _WRNLABL, (column) options for turning on warning messages
+       _OPT_ON, (column) selected options to turn on
+       _OPT_OFF, (column) selected options to turn off
+    OUTPUTS
+       CHECKER=0 if no error, 1 if error present
+   *_______________________________________________________________*;
+
+   CHECKER=0;
+   IF (( NROW(_OPT_ON) > 0) | (NROW(_OPT_OFF) > 0 )) THEN DO;
+     _SELECT = _PG1LABL //_PWRLABL //_PRTLABL//_DATLABL//_WRNLABL
+                                                       //_NONLABL;
+     _OPT    = _OPT_ON // _OPT_OFF;
+     _ERR = SETDIF(_OPT,_SELECT);
+     IF NROW(_ERR) ^= 0 THEN DO;
+       PRINT _ERR ":Invalid options requested in OPT_ON or OPT_OFF.";
+       CHECKER=1;
+       END;
+   END;
+
+FINISH;  *_OPTCHK;
+
+***********************************************************************
+*                            _SNGRCHK                                 *
+*                                                                     *
+*This module checks matrices for singularity. Use for the following:  *
+*             - ESSENCEX`*ESSENCEX                                    *
+*             - U`*SIGMA*U                                            *
+*             - C*INV(X`X)*C`                                         *
+**********************************************************************;
+
+
+START _SNGRCHK
+             (matrix,name)      GLOBAL (TOLERANC);
+   *_______________________________________________________________*
+    INPUTS
+      matrix, matrix which will be checked
+      name, label to identify the matrix
+
+      TOLERANC,  value not tolerated, numeric zero (global)
+
+    OUTPUTS
+       _error, =1 if matrix is not symmetric or positive definite
+   *_______________________________________________________________*;
+
+   _error=0;
+
+   IF ALL(MATRIX=.) THEN DO;
+      _error=1;
+      NOTE0_1 = { " (labeled MATRIX below) ",
+                  " is all missing values."};
+      PRINT name NOTE0_1 , matrix;
+      RETURN(_error);      
+      END;
+
+    _MAXVAL=MAX(ABS(MATRIX));
+   
+   IF _MAXVAL<=TOLERANC THEN DO;
+      _error=1;
+      NOTE0_2= { " (labeled MATRIX below) ", 
+                " has max(abs(all elements)) <= TOLERANC."};
+      PRINT name NOTE0_2 , matrix;
+      RETURN(_error);
+      END;
+
+   _NMATRIX=MATRIX / _MAXVAL;
+
+   ** SQRT IN NEXT LINE DUE TO NUMERICAL INACCURACY IN SSCP
+      CALCULATION WITH SOME DATA VIA SWEEP;
+
+   IF MAX(ABS(_NMATRIX-_NMATRIX`))>=SQRT(TOLERANC) THEN DO;
+      _error=1;
+      NOTE1 = { " (labeled MATRIX below) ",
+                " is not symmetric, within sqrt(TOLERANC)."};
+      PRINT name NOTE1 , matrix;
+      RETURN(_error);
+      END;
+
+      _EVALS=EIGVAL(_NMATRIX);
+
+   IF MIN(_EVALS) <= SQRT(TOLERANC) THEN DO;
+      _error=1;
+      NOTE2={" (labeled MATRIX below) ",
+             " is not positive definite. This may",
+             " happen due to programming error or rounding",
+             " error of nearly LTFR matrix. Perhaps can fix",
+             " by usual scaling/centering techniques.",
+             " This version disallows LTFR designs.",
+             " Eigenvalues/max(abs(original matrix)) are:" };
+      PRINT name NOTE2 , _EVALS;
+      NOTE2_1={" is the max(abs(original matrix))"} ;
+      PRINT _MAXVAL ;
+      RETURN(_error);
+      END;
+
+RETURN(_error);
+FINISH; * _SNGRCHK;
+
+
+***********************************************************************
+*                            _SIZECHK                                 *
+*                                                                     *
+*This module checks matrices for having more than one column          *
+*                                                                     *
+**********************************************************************;
+
+START _SIZECHK
+             (matrix,name);
+   *_______________________________________________________________*
+    INPUTS
+      matrix, matrix which will be checked
+      name, label to identify the matrix
+
+      OUTPUTS
+       _error, =1 if matrix has more than one column
+   *_______________________________________________________________*;
+
+   _error=0;
+   
+   IF NCOL(matrix)>1 THEN DO;
+      _error=1;
+      NOTE2_2 = { " (labeled MATRIX below) ",
+                  " has more than one row and more than one column.",
+                  "MATRIX is the transpose of your input." };
+      PRINT name NOTE2_2 , matrix ; 
+      RETURN(_error);      
+      END;
+    
+RETURN(_error);
+FINISH; * _SIZECHK;
+
+***********************************************************************
+*                            _TYPECHK                                 *
+*                                                                     *
+*This module verifies that matrix is of required type,                *
+* either character or numeric,                                        *
+*                                                                     *
+**********************************************************************;
+
+START _TYPECHK
+             (matrix,name,target);
+   *_______________________________________________________________*
+    INPUTS
+      matrix, matrix which will be checked
+      name, label to identify the matrix
+      target, one character, "N" (numeric) or "C" (character)
+    OUTPUTS
+       _error, =1 if matrix has more than one column
+   *_______________________________________________________________*;
+
+   _error=0;
+   
+   IF target="N" THEN DO;
+                      IF TYPE(matrix)^=target THEN DO;      
+                                                   _error=1;
+             NOTE2_3={" (labeled MATRIX below) must be numeric."};
+                                     PRINT name NOTE2_3 , matrix ; 
+                                                   RETURN(_error);      
+                                                   END;
+                      END;
+
+  IF target="C" THEN DO;
+                      IF TYPE(matrix)^=target THEN DO;      
+                                                   _error=1;
+             NOTE2_3={" (labeled MATRIX below) must be character"};
+                                     PRINT name NOTE2_3 , matrix ; 
+                                                   RETURN(_error);      
+                                                   END;
+                      END;
+
+RETURN(_error);
+FINISH; * _TYPECHK;
+
+
+*********************************************************************
+*                             _SETOPT                               *
+*                                                                   *
+*    This module sets the options requested by the user.            *
+*                                                                   *
+*THIS MODULE MUST BE CALLED FOR EACH OF THESE LABEL MATRICES:       *
+*                                                                   *
+*  _PG1LABL= { BETA SIGMA RHO C U THETA0 RANKX RANKC RANKU CBETAU}` *
+*  _PWRLABL= { HLT PBT WLK UNI UNIHF UNIGG COLLAPSE}`               *
+*  _PRTLABL= { ALPHA SIGSCAL RHOSCAL BETASCAL TOTAL_N MAXRHOSQ}`    *
+*  _DATLABL= { NOPRINT DS }`                                        *
+*  _WRNLABL= { WARN }`                                              *
+*********************************************************************;
+
+START _SETOPT(newoptn,
+             labels,_OPT_ON,_OPT_OFF);
+
+   *_______________________________________________________________*
+   INPUTS
+   1) Program supplied
+      newoptn, column of on/off switches (0 or 1) for options
+      labels, column of option names which label newoptn
+      _OPT_ON, column of requested options to turn on
+      _OPT_OFF, column of requested options to turn off
+
+   OUTPUTS
+     newoptn, column of switches with requested options turned on/off
+   *_______________________________________________________________*;
+  DO i=1 TO NROW(_OPT_ON);
+  newoptn= newoptn <> (LABELS=_OPT_ON(|i,1|));
+  END;
+  
+  DO i=1 to nrow(_OPT_OFF);    
+  newoptn= newoptn # (LABELS^=_OPT_OFF(|i,1|));
+  END;
+FINISH; *_SETOPT;
+
+***********************************************************************
+**                             _PROBF                                 *
+**                                                                    *
+**  The module _PROBF screens the arguments to the PROBF function in  *
+**  order to determine whether they will result in a missing value    *
+**  being returned by the PROBF function due to power too near 1.     *
+**  If this is the case, the PROBF function is by-passed.             *
+**  PROBF function arguments are assessed with a normal approximation *
+**  to a noncentral F-distribution (Johnson and Kotz, v2, 1970, p195).*
+**  Additional problem in 6.04 exists with fractional df,             *
+**  that was fixed with 6.06 (and assume beyond).                     *
+**  Not surprisingly, normal approximation can be much less accurate  *
+**  than standard function.  However, try to invoke normal approx     *
+**  only when power>.99.  This may fail.  Statistical inaccuracy      *
+**  in the approximations larger than numerical error.  Also, in      *
+**  study planning this more than adequate accuracy.                  *
+**********************************************************************;
+
+START _PROBF
+      (_FCRIT, _DF1, _DF2, _LAMBDA);
+
+   *_______________________________________________________________*
+   INPUTS
+   1) Program supplied
+      _FCRIT, critical value of F distribution if Ho true, size=_ALPHA
+      _DF1, numerator (hypothesis) degrees of freedom
+      _DF2, denominator (error) degrees of freedom
+      _LAMBDA, noncentrality parameter
+
+   OUTPUTS
+      PROB, approximate probability that variable distributed 
+            F(_DF1,_DF2,_LAMBDA) will take a value <= _FCRIT
+   *_______________________________________________________________* ;
+
+   P1 = 1/3;
+   P2 = -2;
+   P3 = 1/2;
+   P4 = 2/3;
+
+   ARG1 = ((_DF1*_FCRIT)/(_DF1+_LAMBDA));
+   ARG2 = (2/9)*(_DF1 + (2*_LAMBDA))*((_DF1 + _LAMBDA)##P2);
+   ARG3 = (2/9)*(1/_DF2);
+
+   NUMZ = (ARG1##P1) - (ARG3*(ARG1##P1)) - (1 - ARG2);
+   DENZ = ( (ARG2 + ARG3*(ARG1##P4)) )##P3;
+   ZSCORE = NUMZ/DENZ;
+   * For debugging-- PRINT , ZSCORE _DF1 _DF2 _LAMBDA ;
+   IF (_LAMBDA>0)&(ZSCORE<-4.) THEN PROB=0;
+      ELSE PROB = PROBF(_FCRIT,_DF1,_DF2,_LAMBDA);
+   RETURN(PROB);
+   FINISH; *_PROBF;
+
+***********************************************************************
+**                             _HLTMOD                                *
+**                                                                    *
+**  The module _HLTMOD calculates a power for Hotelling-Lawley trace  *
+**  based on the F approx. method.  _HLT is the Hotelling-Lawley      *
+**  trace statistic, _DF1 and _DF2 are the hypothesis and error       *
+**  degrees of freedom, _LAMBDA is the noncentrality parameter, and   *
+**  _FCRIT is the critical value from the F distribution.             *
+**********************************************************************;
+START _HLTMOD(_PWR,_LBL,
+              _A,_B,_S,_N,_R,_EVAL,_ALPHA,_NONCENN);
+   *_______________________________________________________________*
+   INPUTS
+   1) Program supplied
+      _A, rank of C matrix
+      _B, rank of U matrix
+      _S, minimum of _A and _B
+      _N, total N
+      _R, rank of X
+      _EVAL, eigenvalues for H*INV(E)
+      _ALPHA, size of test
+      _NONCENN, =1 if multiply H*inv(E) eval's by (_N-_R)#_N
+                and replace _DF2 with _N#_S in noncentrality
+                for _S>1, per proposal by O'Brien & Shieh, 1992
+   OUTPUTS
+      _PWR, power for Hotelling-Lawley trace
+      _LBL, label for output
+   *_______________________________________________________________*;
+   _DF1 = _A#_B;
+   _DF2 = _S#(_N-_R-_B-1) + 2;
+   IF (_DF2 <= 0) | (_EVAL(|1,1|) = .) THEN _PWR = . ;
+                ELSE DO;
+      IF (_NONCENN=1) | (_S=1) THEN EVALT=_EVAL#(_N-_R)/_N;
+                               ELSE EVALT=_EVAL;
+      _HLT = EVALT(|+,|);
+      IF (_NONCENN=1) | (_S=1) THEN _LAMBDA = (_N#_S)#(_HLT/_S);
+                               ELSE _LAMBDA = (_DF2 )#(_HLT/_S);
+      _FCRIT = FINV(1-_ALPHA, _DF1, _DF2);
+      _PWR = 1-_PROBF(_FCRIT, _DF1, _DF2, _LAMBDA);
+      END;
+   _LBL = {"HLT_PWR"};
+  FINISH; *_HLTMOD;
+
+***********************************************************************
+**                                _PBTMOD                             *
+**                                                                    *
+**  The module _PBTMOD calculates a power for Pillai-Bartlett trace   *
+**  based on the F approx. method.  _V is the PBT statistic,          *
+**  _DF1 and _DF2 are the hypothesis and error degrees of freedom,    *
+**  _LAMBDA is the noncentrality parameter, and _FCRIT is the         *
+**  critical value from the F distribution.                           *
+**********************************************************************;
+
+START _PBTMOD(_PWR,_LBL,
+             _A,_B,_S,_N,_R,_EVAL,_ALPHA,_NONCENN) GLOBAL(TOLERANC);
+   *_______________________________________________________________*
+   INPUTS
+   1) Program supplied
+      _A, rank of C matrix
+      _B, rank of U matrix
+      _S, minimum of _A and _B
+      _N, total N
+      _R, rank of X
+      _EVAL, eigenvalues for H*INV(E)
+      _ALPHA, size of test
+      TOLERANC,  value not tolerated, numeric zero (global)
+      _NONCENN, =1 if multiply H*inv(E) eval's by (_N-_R)#_N
+                 and replace _DF2 with _N#_S in noncentrality
+                   for _S>1, per proposal by O'Brien & Shieh, 1992
+   OUTPUTS
+      _PWR, power for Pillai-Bartlett trace
+      _LBL, label for output
+   *_______________________________________________________________* ;
+   _DF1 = _A#_B;
+   _DF2 = _S#(_N-_R+_S-_B);
+   IF (_DF2 <= 0) | (_EVAL(|1,1|) = .) THEN _PWR = .;
+      ELSE DO;
+      IF (_NONCENN=1) | (_S=1) THEN EVALT=_EVAL#(_N-_R)/_N;
+                               ELSE EVALT=_EVAL;
+      _V = SUM(EVALT/(J(_S,1,1) + EVALT));
+      IF (_S-_V) <= TOLERANC THEN _PWR=.;
+         ELSE DO;
+         IF (_NONCENN=1) | (_S=1) THEN _LAMBDA =(_N#_S)#_V/(_S-_V);
+                                  ELSE _LAMBDA =(_DF2 )#_V/(_S-_V);
+         _FCRIT = FINV(1-_ALPHA, _DF1, _DF2, 0);
+         _PWR=1-_PROBF(_FCRIT, _DF1, _DF2, _LAMBDA);
+         END;
+      END;
+   _LBL = {"PBT_PWR"};
+   FINISH; *_PBTMOD;
+
+***********************************************************************
+**                                _WLKMOD                             *
+**                                                                    *
+**  The module _WLKMOD calculates a power for Wilk's Lambda based  on *
+**  the F approx. method.  _W is the Wilks` Lambda statistic, _DF1    *
+**  and _DF2 are the hypothesis and error degrees of freedom, _LAMBDA *
+**  is the noncentrality parameter, and _FCRIT is the critical value  *
+**  from the F distribution.  _RM, _RS, _R1, and _TEMP are inter-     *
+**  mediate variables.                                                *
+**********************************************************************;
+
+START _WLKMOD(_PWR,_LBL,
+              _A,_B,_S,_N,_R,_EVAL,_ALPHA,_NONCENN);
+   *_______________________________________________________________*
+   INPUTS
+   1) Program supplied
+      _A, rank of C matrix
+      _B, rank of U matrix
+      _S, minimum of _A and _B
+      _N, total N
+      _R, rank of X
+      _EVAL, eigenvalues for H*INV(E)
+      _ALPHA, size of test
+      _NONCENN, =1 if multiply H*inv(E) eval's by (_N-_R)#_N  
+              and replace _DF2 with _N#_RS in noncentrality
+                for _S>1, per proposal by O'Brien & Shieh, 1992
+   OUTPUTS
+      _PWR, power for Wilk's Lambda
+      _LBL, label for output
+   *_______________________________________________________________* ;
+   _DF1 = _A # _B;
+   IF _EVAL(|1,1|) = . THEN _W= . ;
+      ELSE DO;
+      IF (_NONCENN=1) | (_S=1) THEN EVALT=_EVAL#(_N-_R)/_N;
+                               ELSE EVALT=_EVAL;
+      _W = EXP(SUM(-LOG(J(_S,1,1) + EVALT)));
+      END;
+   IF _S = 1 THEN DO;
+      _DF2 = _N-_R-_B+1;
+      _RS=1;
+      _TEMPW=_W;
+      END;
+     ELSE DO;
+       _RM = _N-_R-(_B-_A+1)/2;
+       _RS =SQRT( (_A#_A#_B#_B - {4})/(_A#_A + _B#_B - {5}) );
+       _R1 = (_B#_A - {2})/4;
+       IF _W=. THEN _TEMPW=.;
+              ELSE _TEMPW = _W##(1/_RS);
+       _DF2 = (_RM#_RS) - 2#_R1;
+       END;
+  IF _TEMPW=. THEN _LAMBDA=.;
+     ELSE DO;
+     IF (_S=1) | (_NONCENN=1) THEN _LAMBDA=(_N#_RS)#(1-_TEMPW)/_TEMPW;
+                              ELSE _LAMBDA=(_DF2  )#(1-_TEMPW)/_TEMPW;
+     END;
+  IF (_DF2 <= 0) | (_W=.) | (_LAMBDA=.) THEN _PWR = .;
+     ELSE DO;
+     _FCRIT = FINV(1-_ALPHA,_DF1,_DF2,0);
+     _PWR = 1-_PROBF(_FCRIT,_DF1,_DF2,_LAMBDA);
+     END;
+
+  _LBL = {"WLK_PWR"};
+  FINISH; * _WLKMOD;
+
+************************************************************************
+*                             _SPECIAL                                 *
+*                                                                      *
+* The following module performs 2 disparate tasks. For _B=1 (UNIVARIATE*
+* TEST), the powers are calculated more efficiently. For _A=1 (SPECIAL *
+* MULTIVARIATE CASE), exact multivariate powers are calculated.        *
+* Powers for the univariate statistics require separate treatment.     *
+* _DF1 & _DF2 are the hypothesis and error degrees of freedom,         *
+* _LAMBDA is the noncentrality parameter, and _FCRIT is the critical   *
+* value from the F distribution.                                       *
+**********************************************************************;
+
+START _SPECIAL(_PWR,_LBL,
+               _A,_B,_S,_N,_R,_EVAL,_ALPHA);
+   *_______________________________________________________________*
+   INPUTS
+   1) Program supplied
+      _A, rank of C matrix
+      _B, rank of U matrix
+      _S, minimum of _A and _B
+      _N, total N
+      _R, rank of X
+      _EVAL, eigenvalues for H*INV(E)
+      _ALPHA, size of test
+
+   OUTPUTS
+      _PWR, power for special case when rank(CBU)=1
+      _LBL, label for output
+   *_______________________________________________________________* ;
+
+   _DF1=_A#_B;
+   _DF2 = _N-_R-_B+1;
+   IF (_DF2 <= 0) | (_EVAL(|1,1|)=.) THEN _PWR = .;
+                ELSE  DO;
+                      _LAMBDA=_EVAL(|1,1|)#(_N-_R);
+                      _FCRIT = FINV(1-_ALPHA,_DF1,_DF2);
+                      _PWR = 1-_PROBF(_FCRIT,_DF1,_DF2,_LAMBDA);
+                      END;
+
+   _LBL = {"POWER"};
+
+FINISH; *_SPECIAL;
+
+
+************************************************************************
+*                            _UNIMOD                                   *
+*                                                                      *
+* Univariate STEP 1:                                                   *
+* This module produces matrices required for Geisser-Greenhouse,       *
+* Huynh-Feldt or uncorrected repeated measures power calculations. It  *
+* is the first step. Program uses approximations of expected values of *
+* epsilon estimates due to Muller (1985), based on theorem of Fujikoshi*
+* (1978). Program requires that U be orthonormal.                      *
+***********************************************************************;
+START _UNIMOD(_D, _MTP, _EPS, _DEIGVAL,_SLAM1, _SLAM2, _SLAM3,
+              _USIGMAU,_B)  GLOBAL(TOLERANC);
+
+   *_______________________________________________________________*
+    INPUTS
+    _USIGMAU = U`*(SIGMA#_SIGSCAL)*U
+        _B, rank of U
+
+    TOLERANC, value not tolerated, numeric zero (global)
+
+    OUTPUTS
+       _D, number of distinct eigenvalues
+       _MTP, multiplicities of eigenvalues
+       _EPS, epsilon calculated from U`*SIGMA*U
+       _DEIGVAL, first eigenvalue
+       _SLAM1, sum of eigenvalues squared
+       _SLAM2, sum of squared eigenvalues
+       _SLAM3, sum of eigenvalues
+   *_______________________________________________________________* ;
+
+*Get eigenvalues of covariance matrix associated with _E. This is NOT
+the USUAL sigma. This cov matrix is that of (Y-YHAT)*U, not of (Y-YHAT).
+The covariance matrix is normalized to minimize numerical problems ;
+
+ _ESIG = _USIGMAU / ( TRACE(_USIGMAU) );
+ _SEIGVAL=EIGVAL(_ESIG);
+ _SLAM1 = SUM( _SEIGVAL)##2;
+ _SLAM2 = SSQ( _SEIGVAL);
+ _SLAM3 = SUM( _SEIGVAL);
+ _EPS =  _SLAM1 / (_B # _SLAM2);
+
+*Decide which eigenvalues are distinct;
+ _D      =  1;        *Ends as number of distinct eigenvalues;
+ _MTP    =  1;        *Ends as vector of multiplicities of eignvals;
+ _DEIGVAL=_SEIGVAL(| 1 , 1|);
+ DO _I =  2 TO _B;
+    IF ( _DEIGVAL(|_D,1|) - _SEIGVAL(|_I,1|) ) > TOLERANC THEN DO;
+       _D = _D +  1;
+       _DEIGVAL = _DEIGVAL // _SEIGVAL(| _I , 1|);
+       _MTP = _MTP // {1};
+       END;
+    ELSE _MTP(|_D,1|)=_MTP(|_D,1|) + 1;
+    END;
+FINISH; *_UNIMOD;
+
+***********************************************************************
+*                          _GGEXEPS                                   *
+*                                                                     *
+* Univariate, GG STEP 2:                                              *
+*Compute approximate expected value of Geisser-Greenhouse estimate    *
+*          _FK = 1st deriv of FNCT of eigenvalues                     *
+*          _FKK= 2nd deriv of FNCT of eigenvalues                     *
+*          For GG FNCT is epsilon caret                               *
+**********************************************************************;
+
+START _GGEXEPS
+              (_B, _N, _R, _D,
+              _MTP, _EPS, _DEIGVAL,
+              _SLAM1, _SLAM2, _SLAM3);
+   *_______________________________________________________________*
+    INPUTS
+    1) Program supplied
+       _B, rank of U
+       _N, total number of observations
+       _R, rank of X
+       _D, number of distinct eigenvalues
+       _MTP, multiplicities of eigenvalues
+       _EPS, epsilon calculated from U`*SIGMA*U
+       _DEIGVAL, first eigenvalue
+       _SLAM1, sum of eigenvalues squared
+       _SLAM2, sum of squared eigenvalues
+       _SLAM3, sum of eigenvalues
+
+    OUTPUTS
+       _EXEPS, expected value of epsilon estimator
+   *_______________________________________________________________* ;
+
+_FK = J(_D, 1, 1) #  2 # _SLAM3 / ( _SLAM2 # _B ) - (  2 ) # _DEIGVAL
+      # _SLAM1 / ( _B # _SLAM2 ##  2 );
+ _C0 = (  1 ) - _SLAM1 / _SLAM2;
+ _C1 =  -4 # _SLAM3 / _SLAM2;
+ _C2 =  4 # _SLAM1 / _SLAM2 ##  2;
+
+ _FKK = _C0 # J( _D ,  1 ,  1) + _C1 # _DEIGVAL + _C2 # _DEIGVAL ##  2;
+ _FKK =  2 # _FKK / ( _B # _SLAM2 );
+
+ _T1 = _FKK # ( _DEIGVAL ##  2 ) # _MTP;
+ _SUM1 = SUM( _T1);
+
+ IF _D =  1 THEN _SUM2 =  0;
+ ELSE DO;
+    _T2 = _FK # _DEIGVAL # _MTP;
+    _T3 = _DEIGVAL # _MTP;
+    _TM1 = _T2 * _T3`;
+    _T4 = _DEIGVAL * J(  1 , _D ,  1);
+    _TM2 = _T4 - _T4`;
+    _TM2INV = 1/( _TM2 + I( _D)) - I( _D);
+    _TM3 = _TM1 # _TM2INV;
+    _SUM2 = SUM( _TM3);
+    END;
+
+_EXEPS = _EPS + (_SUM1 + _SUM2)/(_N - _R);
+RETURN (_EXEPS);
+FINISH; *GG;
+
+
+
+***********************************************************************
+*                          _HFEXEPS                                   *
+*                                                                     *
+* Univariate, HF STEP 2:                                              *
+*Compute approximate expected value of Huynh-Feldt estimate           *
+*          _FK = 1st deriv of FNCT of eigenvalues                     *
+*          _FKK= 2nd deriv of FNCT of eigenvalues                     *
+*          For HF, FNCT is epsilon tilde                              *
+**********************************************************************;
+START _HFEXEPS
+              (_B, _N, _R, _D,
+              _MTP, _EPS, _DEIGVAL,
+              _SLAM1, _SLAM2, _SLAM3);
+   *_______________________________________________________________*
+    INPUTS
+    1) Program supplied
+       _B, rank of U
+       _N, total number of observations
+       _R, rank of X
+       _D, number of distinct eigenvalues
+       _MTP, multiplicities of eigenvalues
+       _EPS, epsilon calculated from U`*SIGMA*U
+       _DEIGVAL, first eigenvalue
+       _SLAM1, sum of eigenvalues squared
+       _SLAM2, sum of squared eigenvalues
+       _SLAM3, sum of eigenvalues
+
+    OUTPUTS
+       _EXEPS, expected value of epsilon estimator
+   *_______________________________________________________________* ;
+* Compute approximate expected value of Huynh-Feldt estimate;
+ _H1 = _N # _SLAM1 - (  2 ) # _SLAM2;
+ _H2 = ( _N - _R ) # _SLAM2 - _SLAM1;
+ _DERH1 = J( _D ,  1 ,  2 # _N # _SLAM3) -  4 # _DEIGVAL;
+ _DERH2 =  2 # (_N - _R ) # _DEIGVAL - J( _D , 1 , 2 # SQRT( _SLAM1));
+ _FK = _DERH1 - _H1 # _DERH2 / _H2;
+ _FK = _FK / ( _B # _H2 );
+ _DER2H1 = J( _D ,  1 ,  2 # _N - (  4 ));
+ _DER2H2 = J( _D ,  1 ,  2 # ( _N - _R ) - (  2 ));
+ _FKK =- _DERH1#_DERH2 / _H2+_DER2H1 - _DERH1#_DERH2 / _H2 +  2 #_H1#(
+         _DERH2 ##  2 ) / _H2 ##  2 - _H1 # _DER2H2 / _H2;
+ _FKK = _FKK / ( _H2 # _B );
+
+ _T1 = _FKK # ( _DEIGVAL ##  2 ) # _MTP;
+ _SUM1 = SUM( _T1);
+
+ IF _D =  1 THEN _SUM2 =  0;
+ ELSE DO;
+    _T2 = _FK # _DEIGVAL # _MTP;
+    _T3 = _DEIGVAL # _MTP;
+    _TM1 = _T2 * _T3`;
+    _T4 = _DEIGVAL * J(  1 , _D ,  1);
+    _TM2 = _T4 - _T4`;
+    _TM2INV = 1/( _TM2 + I( _D)) - I( _D);
+    _TM3 = _TM1 # _TM2INV;
+    _SUM2 = SUM( _TM3);
+    END;
+
+_EXEPS = _H1/(_B # _H2) + (_SUM1 + _SUM2) / (_N - _R);
+RETURN (_EXEPS);
+FINISH; *_HFEXEPS;
+
+********************************************************************
+*                        _LASTUNI                                  *
+*                                                                  *
+* Univariate STEP 3                                                *
+* Final step for univariate repeated measures power calculations   *
+********************************************************************;
+
+START _LASTUNI (_PWR, _LBL,
+                _EXEPS, _H, _E, _A, _B, _R, _N,
+                _EPS, ppp, _ALPHA, FIRSTUNI);
+
+   *_______________________________________________________________*
+    INPUTS
+    1) Program supplied
+       _EXEPS, expected value epsilon estimator
+       _H, hypothesis sum of squares
+       _E, error sum of squares
+       _A, rank of C
+       _B, rank of U
+       _N, total number of observations
+       _R, rank of X
+       _EPS, epsilon calculated from U`*SIGMA*U
+       ppp, indicates selected power calculation
+       _ALPHA, size of test
+       FIRSTUNI, indicates first requested univariate statistic
+
+   OUTPUTS
+      _PWR, power for selected power calculation
+      _LBL, label for output
+   *_______________________________________________________________*;
+IF _EXEPS > 1                      THEN _EXEPS =  1;
+IF (_EXEPS < (1/_B)) & (_EXEPS^=.) THEN _EXEPS =  1/_B ;
+
+IF (_N-_R)<=0 THEN _EPOWR=.;
+              ELSE DO;
+  *Compute noncentrality approximation;
+  _MSH = TRACE( _H) / ( _A # _B );
+  _MSE = TRACE( _E) / ( _B # ( _N - _R ) );
+  _FALT = _MSH / _MSE;
+  _LEPS = _A # _B # _EPS # _FALT;
+  *Compute power approximation; 
+  _FCRIT= FINV(1 - _ALPHA , _B # _A # _EXEPS , _B # (_N -_R ) # _EXEPS);
+  _EPOWR = 1 - _PROBF(_FCRIT, _B # _A # _EPS, _B#(_N -_R )#_EPS ,_LEPS);
+  END;
+_PWR = _EXEPS||_EPOWR;
+
+IF ppp=4 THEN DO;
+  _PWR = _EPS||_EPOWR;
+  _LBL = {"EPSILON" "UNI_PWR"};
+  END;
+IF ppp=5 THEN DO;
+  IF FIRSTUNI=5 THEN DO;
+     _PWR = _EPS||_PWR;
+     _LBL = { "EPSILON" "HF_EXEPS" "HF_PWR"};
+     END;
+  ELSE DO;
+     _LBL = {"HF_EXEPS" "HF_PWR"};
+     END;
+  END;
+IF ppp=6 THEN DO;
+  IF FIRSTUNI=6 THEN DO;
+     _PWR = _EPS||_PWR;
+     _LBL = { "EPSILON" "GG_EXEPS" "GG_PWR"};
+     END;
+  ELSE DO;
+     _LBL = {"GG_EXEPS" "GG_PWR"};
+     END;
+  END;
+FINISH; *_LASTUNI;
+
+***********************************************************************
+*                        _SASDS                                       *
+*                                                                     *
+* Creates SAS dataset if requested.                                   *
+**********************************************************************;
+
+START _SASDS
+            (_HOLDPOW, _HOLDNM, DSNAME);
+   *_______________________________________________________________*
+    INPUTS
+    1) User supplied (or program default)
+       DSNAME, { "libref"  "dataset name" "default library" }
+       The "default library" is optional. If omitted WORK
+       is used. Default {WORK DODFAULT}.
+
+    2) Program supplied
+       _HOLDPOW, matrix of power values and optional output.
+       _HOLDNM, matrix of variable names for the SAS dataset.
+   *_______________________________________________________________* ;
+
+IF NCOL(DSNAME)=2 THEN _DSNAME=DSNAME||{WORK};
+IF NCOL(DSNAME)=3 THEN _DSNAME = DSNAME;
+
+LIB = _DSNAME(|1,1|);
+DATASET = _DSNAME(|1,2|);
+DEFAULT = _DSNAME(|1,3|);
+
+* Reset default library to libref;
+RESET NONAME DEFLIB = LIB;
+
+LISTDS = DATASETS(LIB);
+ENDIT=0;
+NUMDS = NROW(LISTDS);
+
+*Check to see if _PWRDTMP or user-specified DATASET already exists *;
+IF NUMDS > 0 THEN
+DO i=1 TO NUMDS;
+  IF LISTDS(|i,1|) = "_PWRDTMP" THEN DO;
+    ENDIT=1;
+    NOTE1 = { "The program uses an intermediate dataset called",
+              "_PWRDTMP. This dataset already exists in the",
+              "requested library. New datasets cannot be created."};
+    PRINT NOTE1;
+    END;
+  IF LISTDS(|i,1|) = DATASET THEN DO;
+    NOTE2 = { " already exists. The default PWRDT### will",
+              " be created instead. (See below)       " };
+    PRINT DATASET NOTE2;
+    DATASET = "DODFAULT";
+  END;
+END;
+
+* Set default dataset name if required *;
+NEWNUM=0;
+IF DATASET= "DODFAULT" THEN NEWNUM=1;
+
+IF DATASET = "DODFAULT" & NUMDS > 0 THEN DO;
+    DO j=1 TO NUMDS;
+    *Are any PWRDT### datasets in the library ?**;
+    IF SUBSTR(LISTDS(|j,1|),1,5) = "PWRDT" THEN
+       LISTPDS = LISTPDS//LISTDS(|j,1|);
+    END;
+
+  *What numbers do PWRDT### datasets have? Set number for new DS.**;
+  IF NROW(LISTPDS) > 0 THEN DO;
+    PDSNUMS = NUM(SUBSTR(LISTPDS,6,3));
+    MAXNUM = MAX(PDSNUMS);
+    NEWNUM = MAXNUM + 1;
+    END;
+
+  *Maximum number of PWRDT### datasets is 999.**;
+  IF NEWNUM >999 THEN DO;
+    ENDIT =1;
+    NOTE3 = {" There are already 999 PWRDT### datasets.",
+             " No more can be created."};
+    PRINT NOTE3;
+    END;
+  END;
+
+* New default name**;
+IF (DATASET = "DODFAULT" & (1 <= NEWNUM <= 999) & ENDIT^=1) THEN
+   DATASET = COMPRESS(CONCAT("PWRDT",CHAR(NEWNUM)));
+
+* Create intermediate dataset called _PWRDTMP **;
+IF ENDIT ^= 1 THEN DO;
+  CREATE _PWRDTMP VAR _HOLDNM;
+  APPEND FROM _HOLDPOW;
+  CLOSE _PWRDTMP;
+
+  *Change name of intermediate dataset to user specified or default*;
+  CALL RENAME(LIB,"_PWRDTMP",DATASET);
+  NAMED = COMPRESS(CONCAT(LIB,".",DATASET));
+  PRINT "The dataset WORK._PWRDTMP has been renamed to " NAMED;
+  END;
+
+* Reset to original default library;
+RESET NAME DEFLIB = DEFAULT;
+
+FINISH; *_SASDS;
+
+***********************************************************************
+**                              MAIN CODE                             *
+**********************************************************************;
+
+ START _POWER (_HOLDPOW, _HOLDNM,_POWCHK)
+       GLOBAL (ESSENCEX, SIGMA, BETA, U, C, THETA0,
+               REPN, BETASCAL, SIGSCAL, RHOSCAL, ALPHA,
+               ROUND, TOLERANC, OPT_ON, OPT_OFF, DSNAME);
+
+   *_______________________________________________________________*
+    INPUTS
+    1) User supplied - required - GLOBAL
+       ESSENCEX, the essence design matrix.  Users unfamiliar with
+          this matrix may simply enter the full design matrix and
+          specify that REPN below be equal to 1.
+       SIGMA, the hypothesized variance-covariance matrix
+       BETA, the matrix of hypothesized regression coefficients
+       U, "within" subject contrast
+       C, "between" subject contrast
+    2) User supplied - optional (program defaults supplied) - GLOBAL
+       THETA0, the matrix of constants to be subtracted from CBU
+       REPN, (vector), the # of times each row of ESSENCEX is
+          duplicated
+       BETASCAL, (vector) multipliers for BETA
+       SIGSCAL, (vector) multipliers for SIGMA
+       RHOSCAL, (vector) multipliers for RHO
+       ALPHA, (vector) Type I error rates
+       ROUND, (scalar) # of places to round power calculations
+       TOLERANC, (scalar) value not tolerated, numeric zero,
+       used for checking singularity.
+       OPT_ON, (column) selected options to turn on
+       OPT_OFF, (column) selected options to turn off
+       DSNAME, (row) name of output dataset
+
+    OUTPUTS
+      _HOLDPOW, matrix of power calculations
+      _HOLDNM, column labels for _HOLDPOW
+      _POWCHK = 0 if no warnings or errors detetected,
+              = 1 if mild warning, e.g. _N-_R <=5 (poor approxmtns),
+              = 2 if any missing values included in _HOLDPOW, and
+              = 3 if input error or computational problem required
+                     program termination
+   *_______________________________________________________________*;
+
+
+*A: INITIAL SETUP  **;
+*A.0.1) Insure everthing printed by power software goes to output file; 
+RESET NOLOG;
+*A.0.2) Initialize return code;
+_POWCHK=0;
+*A.0.3) Initialize warnings about powers rounding to 1;
+_RNDCHK=0; *
+
+*A.1) Check for required input matrices, and that they are numeric *;
+IF (NROW(C)=0)       |
+   (NROW(BETA)=0)    |
+   (NROW(SIGMA)=0)   |
+   (NROW(ESSENCEX)=0) THEN DO;
+         NOTE1={"One or more of the following four required matrices",
+                "has not been supplied:  SIGMA, BETA, C, ESSENCEX.  "};
+         PRINT NOTE1;
+         GO TO ENDOFPGM;
+         END;
+
+IF (_TYPECHK(C       ,"C"       ,"N")+
+    _TYPECHK(BETA    ,"BETA"    ,"N")+ 
+    _TYPECHK(SIGMA   ,"SIGMA"   ,"N")+
+    _TYPECHK(ESSENCEX,"ESSENCEX","N")) > 0 THEN GO TO ENDOFPGM;
+
+*A.1.4) Insure that U and THETA0 are numeric, if they exist;
+IF NROW(U)>0 THEN IF _TYPECHK(U,"U","N")^=0 THEN GO TO ENDOFPGM;
+ 
+IF NROW(THETA0)>0 THEN
+   IF _TYPECHK(THETA0,"THETA0","N")^=0 THEN GO TO ENDOFPGM;
+   
+*A.1.5) Delete previous versions of _HOLDPOW and _HOLDNM;
+IF NROW(_HOLDPOW)>0 THEN FREE _HOLDPOW;
+IF NROW(_HOLDNM) >0 THEN FREE _HOLDNM;
+
+*A.2) Define default matrices;
+
+IF NROW(U)=0 THEN DO;
+  U= I(NCOL(BETA));
+  HITLIST = HITLIST// { U };
+  END;
+IF NROW(REPN)=0 THEN DO;
+  REPN= 1;
+  HITLIST = HITLIST// {REPN};
+  END;
+IF NROW(THETA0)=0 THEN DO;
+  THETA0=J(NROW(C),NCOL(U),0);
+  HITLIST = HITLIST// { THETA0 };
+  END;
+IF NCOL(SIGSCAL)=0 THEN DO;
+  SIGSCAL= { 1 };
+  HITLIST = HITLIST// {SIGSCAL};
+  END;
+IF NCOL(RHOSCAL)=0 THEN DO;
+  RHOSCAL= { 1 };
+  HITLIST = HITLIST// {RHOSCAL};
+  END;
+IF NCOL(BETASCAL)=0 THEN DO;
+  BETASCAL= { 1 };
+  HITLIST = HITLIST// {BETASCAL};
+  END;
+IF NROW(ALPHA) = 0 THEN DO;
+  ALPHA= {.05};
+  HITLIST = HITLIST// {ALPHA};
+  END;
+IF NROW(ROUND)=0 THEN DO;
+  ROUND=3;
+  HITLIST = HITLIST// {ROUND};
+  END;
+IF NROW(TOLERANC)=0 THEN DO;
+  TOLERANC = 1E-12;
+  HITLIST = HITLIST// {TOLERANC};
+  END;
+IF NROW(DSNAME)=0 THEN DO;
+  DSNAME = {WORK DODFAULT WORK};
+  HITLIST = HITLIST// {DSNAME};
+  END;
+
+*A.3) Create column vectors from user inputs;
+  *Check that have only vectors or scalars, not matrices;
+  *Check type (character or numeric);
+  *Check for valid values;
+  CHECKSUM=0;
+
+  IF NCOL(REPN)>1 THEN _REPN = REPN`;
+                  ELSE _REPN = REPN;
+  CHECKSUM=CHECKSUM+_SIZECHK(_REPN,"REPN")
+                   +_TYPECHK(_REPN,"REPN","N");   
+
+  IF NCOL(SIGSCAL)>1 THEN _SIGSCAL = SIGSCAL`;
+                     ELSE _SIGSCAL = SIGSCAL;
+  CHECKSUM=CHECKSUM+_SIZECHK(_SIGSCAL,"SIGSCAL")
+                   +_TYPECHK(_SIGSCAL,"SIGSCAL","N");
+
+  IF NCOL(RHOSCAL)>1 THEN _RHOSCAL = RHOSCAL`;
+                     ELSE _RHOSCAL = RHOSCAL;
+  CHECKSUM=CHECKSUM+_SIZECHK(_RHOSCAL,"RHOSCAL")
+                   +_TYPECHK(_RHOSCAL,"RHOSCAL","N");
+
+  IF NCOL(BETASCAL)>1 THEN _BETASCL = BETASCAL`;
+                      ELSE _BETASCL = BETASCAL;
+  CHECKSUM=CHECKSUM+_SIZECHK(_BETASCL,"BETASCAL")
+                   +_TYPECHK(_BETASCL,"BETASCAL","N");   
+
+  IF NCOL(ALPHA)>1 THEN ALPHAV = ALPHA`;
+                   ELSE ALPHAV = ALPHA;
+  CHECKSUM=CHECKSUM+_SIZECHK(ALPHAV,"ALPHA")  
+                   +_TYPECHK(ALPHAV,"ALPHA","N");   
+
+  IF NROW(OPT_ON)>0 THEN DO;
+     IF NCOL(OPT_ON)>1 THEN _OPT_ON = OPT_ON`;
+                       ELSE _OPT_ON = OPT_ON ;
+            CHECKSUM=CHECKSUM+_SIZECHK(_OPT_ON,"OPT_ON")
+                             +_TYPECHK(_OPT_ON,"OPT_ON","C");   
+            END;
+
+  IF NROW(OPT_OFF)>0 THEN DO;
+     IF NCOL(OPT_OFF)>1 THEN _OPT_OFF = OPT_OFF`;
+                        ELSE _OPT_OFF = OPT_OFF ;
+      CHECKSUM=CHECKSUM+_SIZECHK(_OPT_OFF,"OPT_OFF")
+                       +_TYPECHK(_OPT_OFF,"OPT_OFF","C");
+           END;            
+
+IF CHECKSUM>0 THEN GO TO FREE_END;
+
+*A.4) Define default options;
+
+IF ANY(THETA0)=1 THEN _PG1=     {1 1 1 1 1  1 0 0 0 1}`;
+                 ELSE _PG1=     {1 1 1 1 1  0 0 0 0 1}`;
+_PG1LABL= { BETA SIGMA RHO C U THETA0 RANKX RANKC RANKU CBETAU}`;
+
+_POWR=    { 0 0 1   0 0 1   1 }`;
+_PWRLABL= { HLT PBT WLK   UNI UNIHF UNIGG   COLLAPSE }`;
+
+_PRT=     { 1   1 1 1   1 0 1}`;
+_PRTLABL= {ALPHA   SIGSCAL RHOSCAL BETASCAL   TOTAL_N MAXRHOSQ CASE}`;
+
+_DAT=     { 0 0 }`;
+_DATLABL= { NOPRINT DS }`;
+
+_WARN=    { 1 }`;
+_WRNLABL= { WARN }`;
+
+_NONCENN= { 0 }`;
+_NONLABL= { NONCEN_N }`; 
+
+*A.5) Define necessary parameters;
+
+_R = NCOL(ESSENCEX);              ** _R IS THE RANK OF THE X MATRIX;
+_A = NROW(C);                     ** _A IS THE RANK OF THE C MATRIX;
+_B = NCOL(U);                     ** _B IS THE RANK OF THE U MATRIX;
+_S = MIN(_A,_B);                  ** _S IS MIN OF RANK(C) AND RANK(U);
+_P = NCOL(BETA);                  ** _P IS # OF RESPONSE VARIABLES;
+
+*A.6) Set round off units after checking ROUND *;
+IF _TYPECHK(ROUND,"ROUND","N")^=0 THEN GO TO FREE_END;
+
+IF MAX(NCOL(ROUND),NROW(ROUND))>1 THEN DO;
+   PRINT "ROUND cannot be a matrix. " ,
+         "Must have only one column or only one row." ,, ROUND ;
+   GO TO FREE_END;
+   END;
+IF (ROUND < 1) | (ROUND > 15) THEN DO;
+   PRINT "User-specified ROUND < 1 OR ROUND >15";
+   GO TO FREE_END;
+   END;
+ROUNDOFF = 1/10**ROUND;
+
+*A.7) Check TOLERANC;
+IF _TYPECHK(TOLERANC,"TOLERANCE","N")^=0 THEN DO;
+    GO TO FREE_END;
+   END;
+IF TOLERANC <=0 THEN DO;
+   PRINT "User-specified TOLERANC <= zero.";
+   GO TO FREE_END;
+   END;
+
+*A.8) Check REPN;
+IF MIN(REPN)<=TOLERANC THEN DO;
+   PRINT "All REPN values must be > TOLERANC > zero." , REPN;
+   GO TO FREE_END;
+   END;
+
+*A.9) Check SIGSCAL;
+IF MIN(_SIGSCAL)<=TOLERANC THEN DO;
+   *Can only get here if user supplies invalid SIGSCAL;
+   PRINT "All SIGSCAL values must be > TOLERANC > zero." , SIGSCAL;
+   GO TO FREE_END;
+   END;
+
+*A.10) Check ALPHA;
+IF (MIN(ALPHAV)<=TOLERANC) | (MAX(ALPHAV)>=1) THEN DO;
+   *Can only get here if user supplies invalid ALPHA;
+   PRINT "All ALPHA values must be > TOLERANC > zero." ,
+         "and < 1.00" , ALPHA;
+   GO TO FREE_END;
+   END;
+
+*A.11) Check DSNAME;
+IF (NROW(DSNAME)>1) | (NCOL(DSNAME)>3) THEN DO; 
+   PRINT "DSNAME must have only 1 row and 2 or 3 columns." , DSNAME;
+   GO TO FREE_END;
+   END;
+IF TYPE(DSNAME)="N" THEN DO;
+   PRINT "DSNAME must be character, not numeric." , DSNAME;
+   GO TO FREE_END;
+   END;
+
+
+*A.12) Check for old versions of SAS;
+IF (&SYSVER < 6.06) & (_WARN=1) THEN DO; 
+  NOTE1_3 = {"WARNING:                                       ",
+             "You are using SAS version &SYSVER.  Fractional ",
+             "error degrees of freedom may induce errors in  ",
+             "the _PROBF module of this program. This problem",
+             "has been corrected in SAS version 6.06.        "};
+  PRINT NOTE1_3;
+  END;
+
+*B: CHECKS ON INPUT DATA **;
+
+CALL _INPTCHK(CHECKER, _R, _A, _B, _S);
+IF CHECKER=1 THEN GO TO FREE_END;
+
+CALL _OPTCHK(CHECKER,
+            _PG1LABL, _PWRLABL, _PRTLABL, _DATLABL,_WRNLABL,_NONLABL,
+            _OPT_ON, _OPT_OFF);
+IF CHECKER=1 THEN GO TO FREE_END;
+
+*C: DEFINE NECESSARY MATRICES AND DO CHECKS **;
+
+SD = DIAG(SQRT(VECDIAG(SIGMA)));
+_RHO_ = INV(SD)*SIGMA*INV(SD);    ** Correlation matrix to be printed;
+CBETAU= C*BETA*U;                 ** To be printed                   ;
+
+*C.1) Check for errors;
+_TEMPXX= ESSENCEX`*ESSENCEX;
+_NAME={"X`X"};
+E1= _SNGRCHK(_TEMPXX,_NAME);
+
+*_INVXX= INV(_TEMPXX);
+_INVXX= SOLVE(_TEMPXX,I(NROW(_TEMPXX)));
+FREE _TEMPXX;
+
+_M = C*_INVXX*C`;
+_NAME={"C(INV(X`X))C`"};
+E2= _SNGRCHK(_M,_NAME);
+
+*C.2) Terminate program if errors detected;
+IF (E1=1) | (E2=1) THEN GO TO FREE_END;
+
+*D: SET NEW OPTIONS **;
+
+*D.1) Set user selected options;
+IF ((NROW(_OPT_ON) > 0) | (NROW(_OPT_OFF) > 0)) THEN DO;
+   CALL _SETOPT(_POWR,_PWRLABL,_OPT_ON,_OPT_OFF);
+   CALL _SETOPT(_PRT,_PRTLABL,_OPT_ON,_OPT_OFF);
+   CALL _SETOPT(_PG1,_PG1LABL,_OPT_ON,_OPT_OFF);
+   CALL _SETOPT(_DAT,_DATLABL,_OPT_ON,_OPT_OFF);
+   CALL _SETOPT(_WARN,_WRNLABL,_OPT_ON,_OPT_OFF);
+   CALL _SETOPT(_NONCENN,_NONLABL,_OPT_ON,_OPT_OFF);
+   END;
+
+*D.2) Insure that at least one test statistic chosen;
+IF ANY(_POWR)^=1 THEN DO;
+   PRINT "OPT_OFF combined with defaults implies " ,
+         "no power calculation for any statistic." ,
+         OPT_OFF ;
+   _POWCHK=3;
+   GO TO FREE_END;
+   END;
+ 
+*D.3) Identify special cases;
+IF _POWR(|7,1|)=1 THEN DO; *if COLLAPSE is on;
+   IF _S>1 THEN DO;
+      IF _POWCHK=0 THEN _POWCHK=1;
+      _POWR(|7,1|)=0;
+      IF _WARN=1 THEN
+      PRINT "Rank(C*BETA*U) >1, so COLLAPSE option ignored." ;
+      END;
+   IF _S=1 THEN DO;
+      IF _B=1 THEN _POWR={ 0 0 0 0 0 0 1 }`;
+      IF _B>1 THEN DO;
+         _POWR(|1,1|)=0;
+         _POWR(|2,1|)=0;
+         _POWR(|3,1|)=0;
+         END;
+      END;
+   END;
+
+*E) MORE CHECKS ON MATRICES **;
+
+*E.1) Check for scalar SIGMA *;
+IF (NCOL(SIGMA)=1) & (_WARN=1) THEN DO;
+  NOTE1_5={"WARNING:                               " ,
+           "SIGMA is a scalar. For this program,   " ,
+           "a scalar SIGMA must equal the variance," ,
+           "NOT the standard deviation.            " };
+
+ PRINT NOTE1_5;
+  END;
+
+*E.2) CHECK FOR ORTHONORMAL U;
+* Only needed for univariate repeated measures;
+IF ( _POWR(|4,1|)=1 | _POWR(|5,1|)=1 |_POWR(|6,1|)=1 ) THEN DO;
+  _UPUSCA_ = U` * U;
+  IF _UPUSCA_(|1 ,1|) ^= 0 THEN _UPUSCA_ = _UPUSCA_ / _UPUSCA_(|1 ,1|);
+  _UDIF_ = ABS( _UPUSCA_ - I(_B));
+  IF MAX( _UDIF_) > SQRT( TOLERANC) THEN DO;
+   NOTE2 =
+   {"U is not proportional to an orthonormal matrix. Problem is",
+    "probably due to a programming error or numerical inaccuracy.",
+    "If using ORPOL, suggest centering and/or scaling values",
+    "Inner product is not K#I(NCOL(U)). For a nonzero constant K,",
+    "inner product scaled so (1,1) element is 1.00 (unless = 0) is:"};
+    PRINT NOTE2;
+    PRINT _UPUSCA_;
+    PRINT "Univariate repeated test not valid.";
+    GO TO FREE_END;
+    END;
+  END;
+
+*F) LOOP TO SELECT ALPHA, BETA, SIGMA, N, AND COMPUTE POWER**;
+
+  *F.1) select alpha;
+  DO a=1 TO NROW(ALPHAV);
+  _ALPHA = ALPHAV(|a,1|);
+
+    *F.2) select sigma;
+    DO s=1 TO NROW(_SIGSCAL);
+    _SIGSCL= _SIGSCAL(|s,1|);
+
+    * Compute initial sigscaled covariance matrix *;
+    _ISIGMA = SIGMA#_SIGSCL;
+    * Compute initial rho from initial sigscaled covariance matrix *;
+    V_I=VECDIAG(_ISIGMA);
+    IF MIN(V_I)<=TOLERANC THEN DO;
+      NOTE2_5={"Covariance matrix has variance <= TOLERANC (too small)",
+                 "with current SIGSCAL element = "};
+      PRINT NOTE2_5 _SIGSCL ,,, SIGMA;
+      GO TO FREE_END;
+      END;
+    STDEV=SQRT(V_I);
+    STDINV=DIAG(J(_P,1,1)/(STDEV));
+    _IRHO = STDINV*_ISIGMA*STDINV;
+
+      *F.3) create new rhos *;
+      DO r=1 TO NROW(_RHOSCAL);
+      _RHOSCL = _RHOSCAL(|r,1|);
+      _RHOJUNK = (_IRHO #_RHOSCL);  * Diagonal elements not =1;
+      _RHO_OFF = _RHOJUNK - DIAG(VECDIAG(_RHOJUNK)); * Off-diagonals;
+      _RHO_OFF = (_RHO_OFF + _RHO_OFF`)/2;    *To insure symmetry;
+
+      IF MAX(ABS(_RHO_OFF))>1 THEN DO;
+        NOTE3={"For the current values of SIGSCAL and RHOSCAL",
+               "there is a correlation with an absolute value>1."};
+        PRINT NOTE3;
+        PRINT "SIGSCAL= " _SIGSCL;
+        PRINT "RHOSCAL= " _RHOSCL;
+        GO TO FREE_END;
+        END;
+
+      IF MAX(ABS(_RHO_OFF))=1 THEN DO;
+        _POWCHK=1;
+        NOTE4={"WARNING:                                     ",
+               "For the current values of SIGSCAL and RHOSCAL",
+               "there is a correlation with an absolute value=1."};
+        IF _WARN=1 THEN PRINT NOTE4              ,,
+                            "SIGSCAL= " _SIGSCL ,,
+                            "RHOSCAL= " _RHOSCL ;
+        END;
+
+      _RHO = _RHO_OFF + I(_P);
+
+      * Create new sigma from rho *;
+      STDEVM=DIAG(STDEV);
+      _NEWSIGM = STDEVM*_RHO*STDEVM;
+
+      _SIGSTAR= U`*_NEWSIGM*U;
+      _USIGMAU= (_SIGSTAR + _SIGSTAR`)/2;   *To insure symmetry;
+      _NAME = {"U`*SIGMA*U"};
+      E3 = _SNGRCHK(_USIGMAU,_NAME);
+      IF E3=1 THEN GO TO FREE_END;
+
+        *F.4) Select Beta;
+        DO b=1 TO NROW(_BETASCL);
+        _BETSCL = _BETASCL(|b,1|);
+        _NEWBETA= BETA#_BETSCL;
+        _THETA  = C*_NEWBETA*U ;
+        _ESSH = (_THETA-THETA0)`*SOLVE(_M,I(NROW(_M)))*(_THETA-THETA0);
+        *     = (_THETA-THETA0)`*        INV(_M)      *(_THETA-THETA0);
+
+        *F.5) Select N;
+          DO i=1 TO NROW(_REPN);
+          _N = _REPN(|i,1|)#NROW(ESSENCEX);
+
+          _E = _USIGMAU#(_N-_R);
+          _H = _REPN(|i,1|)#_ESSH;
+  
+          *F.6) Eigenvalues for H*INV(E);
+          _EPS=.;
+          IF (_N - _R) <= 0 THEN DO;
+                                 _EVAL=J(_S,1,.);
+                                 _RHOSQ= . ;
+                                 _D=1;
+                                 _MTP=_B;  
+                                *_EPS=.;
+                                 _DEIGVAL=.;
+                                 _SLAM1=.; _SLAM2=.; _SLAM3=.;
+                                 END; 
+            ELSE DO;
+            _FINV = (SOLVE(HALF(_E),I(NROW(_E))))`; * = INV(HALF(_E))`;
+            _HEIORTH = _FINV*_H*_FINV`;
+            _HEIORTH=(_HEIORTH + _HEIORTH`)/2;  *Insure symmetry;
+            _EVAL = EIGVAL(_HEIORTH);
+            _EVAL=_EVAL(|1:_S,1|);        *At most _S nonzero;
+            _EVAL=_EVAL#(_EVAL>TOLERANC); *Set evals<tolerance to zero;
+
+            *Make vector of squared generalized canonical correlations;
+            IF ( _S=1) | (_NONCENN=1) THEN EVALT=_EVAL#(_N-_R)/_N;
+                                      ELSE EVALT=_EVAL;
+            _RHOSQ = EVALT(|*,1|)/(J(_S,1,1)+EVALT(|*,1|));
+            _RHOSQ = ROUND(_RHOSQ,ROUNDOFF);
+            _RHOSQ1=_RHOSQ(|1,1|);  *Largest;
+            END;
+          *F.7) Start requested power calculations **;
+
+          *F.7.a) Start univariate repeated measures power calcs;
+          IF (_POWR(|4,1|)=1|_POWR(|5,1|)=1|_POWR(|6,1|)=1) THEN DO;
+            CALL _UNIMOD(_D,_MTP,_EPS,_DEIGVAL,
+                               _SLAM1,_SLAM2,_SLAM3,
+                               _USIGMAU,_B);
+            *Find first requested univariate statistic.;
+            *Needed for creating epsilon;
+            IF NROW(FIRSTUNI)= 0 & _POWR(|4,1|)=1 THEN FIRSTUNI=4;
+            IF NROW(FIRSTUNI)= 0 & _POWR(|5,1|)=1 THEN FIRSTUNI=5;
+            IF NROW(FIRSTUNI)= 0 & _POWR(|6,1|)=1 THEN FIRSTUNI=6;
+            END;
+
+          *F.7.b) Select requested power calculations;
+
+          p = _POWR`;
+          PSELECTN = (LOC(p))`;
+            DO pp=1 TO NROW(PSELECTN);
+            ppp = PSELECTN(|pp,1|);
+            IF ppp=1 THEN CALL _HLTMOD(_PWR,_LBL,
+                                  _A,_B,_S,_N,_R,_EVAL,_ALPHA,_NONCENN);
+            IF ppp=2 THEN CALL _PBTMOD(_PWR,_LBL,
+                                  _A,_B,_S,_N,_R,_EVAL,_ALPHA,_NONCENN);
+            IF ppp=3 THEN CALL _WLKMOD(_PWR,_LBL,
+                                  _A,_B,_S,_N,_R,_EVAL,_ALPHA,_NONCENN);
+            IF ppp=4 THEN DO;
+                          _EXEPS=1;
+                          CALL _LASTUNI(_PWR,_LBL,
+                                       _EXEPS,_H,_E,_A,_B,_R,_N,
+                                       _EPS,ppp,_ALPHA,FIRSTUNI);
+                          END;
+            IF ppp=5 THEN DO;
+                          IF (_N-_R) <= 0 THEN _EXEPS=.;
+                             ELSE _EXEPS=_HFEXEPS(_B,_N,_R,_D,
+                                                 _MTP,_EPS,_DEIGVAL,
+                                                 _SLAM1,_SLAM2,_SLAM3);
+                          CALL _LASTUNI(_PWR,_LBL,
+                                       _EXEPS,_H,_E,_A,_B,_R,_N,
+                                       _EPS,ppp,_ALPHA,FIRSTUNI);
+                          END;
+            IF ppp=6 THEN DO;
+                          IF (_N-_R) <= 0 THEN _EXEPS=.;
+                             ELSE _EXEPS=_GGEXEPS(_B,_N,_R,_D,
+                                                 _MTP,_EPS,_DEIGVAL,
+                                                 _SLAM1,_SLAM2,_SLAM3);
+                          CALL _LASTUNI(_PWR,_LBL,
+                                       _EXEPS,_H,_E,_A,_B,_R,_N,
+                                       _EPS,ppp,_ALPHA,FIRSTUNI);
+                          END;
+             IF ppp=7 THEN CALL _SPECIAL(_PWR,_LBL,
+                                        _A,_B,_S,_N,_R,_EVAL,_ALPHA);
+
+             *F.7.c) Put all requested power calculations in a row;
+             IF NCOL(_OUT)=0 THEN DO;
+               *Set maximum possible output for power table;
+               *then delete unrequested options;
+               _OUT = _ALPHA||_SIGSCL||_RHOSCL||_BETSCL||_N||_RHOSQ1;
+               _HOLDNM = {"ALPHA" "SIGSCAL" "RHOSCAL" "BETASCAL"
+                          "TOTAL_N" "MAXRHOSQ"};
+                 DO xx= 6 to 1 by -1;
+                 IF _PRT(|xx,1|)^=1 THEN DO;
+                                    _OUT = REMOVE(_OUT,xx);
+                                    _HOLDNM = REMOVE(_HOLDNM,xx);
+                                    END;
+                 END;
+               END;
+
+              _PWR = ROUND(_PWR,ROUNDOFF);
+              IF _PWR(|1,NCOL(_PWR)|)=1 THEN _RNDCHK=1;
+              _OUT=   _OUT||_PWR;
+              _HOLDNM= _HOLDNM||_LBL;
+            FREE _PWR _LBL;
+            END; *power calculation selection;
+
+          *F.7.d) Create stack of calculations;
+          IF NROW(_HOLDPOW)=0 THEN _HOLDPOW=_OUT;
+                              ELSE _HOLDPOW= _HOLDPOW//_OUT;
+          FREE  _OUT;
+
+          *F.8) Check for sufficient sample size;
+          IF ((_N -_R)<=5) THEN DO; 
+            IF (_B>1) &     (_POWR(|4  ,1|) =1) & (_EPS^=1) 
+                                          THEN _POWCHK=1; *UNI;
+            IF (_S>1) & (ANY(_POWR(|5:6,1|))=1)
+                                          THEN _POWCHK=1; *UNIHF UNIGG;
+            IF (_S>1) & (ANY(_POWR(|1:3,1|))=1)
+                                          THEN _POWCHK=1; *HLT PBT WLK;
+            END; 
+          END; *N;
+        END; *beta;
+      END; *rho;
+    END; *sigma;
+  END; *alpha;
+
+*G) WARNINGS FROM LOOP ;
+IF ANY(_HOLDPOW=.) THEN _POWCHK=2; 
+IF _WARN=1 THEN DO; *Print only if WARN is on;
+  IF _POWCHK>0 THEN PRINT ,,
+               "WARNING:                                    " ,
+               "If (_N-_R) <= 5, then power approximations  " ,
+               "approximations may be very inaccurate,      " ,
+               "especially Huynh-Feldt.  Consult the manual." ;
+  IF _POWCHK=2 THEN PRINT ,,
+          "WARNING:                                              " ,
+          "When error degrees of freedom are <= 0, _HOLDPOW will " ,
+          "have missing values for some requested powers.        " ,
+          "Hence numeric operations on _HOLDPOW may cause errors." ;
+  END;
+
+*H) PRINTED OUTPUT;
+
+*H.1) Print requested matrices;
+IF (_DAT(|1,1|)=0) & ANY(_PG1) THEN DO;
+  PRINT /;
+  IF _PG1(| 1,1|) = 1 THEN PRINT , BETA;
+  IF _PG1(| 2,1|) = 1 THEN PRINT , SIGMA;
+  IF _PG1(| 3,1|) = 1 THEN PRINT , _RHO_;
+  IF _PG1(| 4,1|) = 1 THEN PRINT , C;
+  IF _PG1(| 5,1|) = 1 THEN PRINT , U;
+  IF _PG1(| 6,1|) = 1 THEN PRINT , THETA0;
+  IF _PG1(| 7,1|) = 1 THEN PRINT , "RANK OF X = " _R;
+  IF _PG1(| 8,1|) = 1 THEN PRINT , "RANK OF C = " _A;
+  IF _PG1(| 9,1|) = 1 THEN PRINT , "RANK OF U = " _B;
+  IF _PG1(|10,1|) = 1 THEN PRINT , "C*BETA*U = " CBETAU;
+  END;
+
+*H.2) Print power calculations;
+  IF ( _RNDCHK>0) & (_WARN=1) THEN PRINT ,,
+               "WARNING:                                " ,
+               "One or more power values rounded to 1.  " ,
+               "For example, with ROUND=3,              " ,
+               "power=1 should be reported as power>.999" ;
+CASETOTL=NROW(_HOLDPOW);
+IF _PRT(|7,1|)=1 THEN DO;
+  CASE = (1:CASETOTL)`;
+  _HOLDPOW = CASE || _HOLDPOW;
+  _HOLDNM = "CASE" || _HOLDNM;
+  END;
+IF _DAT(|1,1|) = 0 THEN DO;
+  IF CASETOTL <= 40 THEN PRINT / _HOLDPOW(|COLNAME=_HOLDNM|);
+    ELSE DO;
+    BRKPT= DO(36,CASETOTL,36);
+    IF MAX(BRKPT) ^= CASETOTL THEN BRKPT= BRKPT||CASETOTL;
+    START= 1;
+      DO i=1 TO NCOL(BRKPT);
+      STP=BRKPT(|1,i|);
+      HOLDPOW = _HOLDPOW(|START:STP,|);
+      PRINT / HOLDPOW(|COLNAME=_HOLDNM|);
+      START= STP + 1;
+      FREE HOLDPOW;
+      END;
+    END;
+  END;
+
+*H.3) Create SAS dataset if option was requested;
+IF _DAT(|2,1|)=1 THEN CALL _SASDS(_HOLDPOW,_HOLDNM,DSNAME);
+
+*I) FREE MATRICES ON THE HITLIST **;
+
+GO TO FREE_ALL;
+FREE_END: ; *Branching target for ending with major error;
+_POWCHK=3;
+
+FREE_ALL: ; *Branching target for no major error;
+  DO I = 1 TO NROW(HITLIST);
+  K=HITLIST(|I,|);
+  IF K = { THETA0 } THEN FREE THETA0;
+  ELSE IF K = { U } THEN FREE U;
+  ELSE IF K = {REPN} THEN FREE REPN;
+  ELSE IF K = {SIGSCAL} THEN FREE SIGSCAL;
+  ELSE IF K = {RHOSCAL} THEN FREE RHOSCAL;
+  ELSE IF K = {BETASCAL} THEN FREE BETASCAL;
+  ELSE IF K = {ALPHA} THEN FREE ALPHA;
+  ELSE IF K = {ROUND} THEN FREE ROUND;
+  ELSE IF K = {TOLERANC} THEN FREE TOLERANC;
+  ELSE IF K = {DSNAME} THEN FREE DSNAME;
+  END;
+IF _POWCHK<3 THEN GO TO ALL_DONE;
+
+ENDOFPGM: ; *Branching target for ending with major error;
+IF _POWCHK=0 THEN _POWCHK=3; *If jumped directly to ENDOFPGM; 
+PRINT ,, "PROGRAM TERMINATED WITH ONE OR MORE MAJOR ERRORS." , 
+         "PROGRAM TERMINATED WITH ONE OR MORE MAJOR ERRORS." ,
+         "PROGRAM TERMINATED WITH ONE OR MORE MAJOR ERRORS." ;
+
+ALL_DONE: ; *Branching target for ending with no or minor errors; 
+FINISH; *_POWER;
+
+
+***********************************************************************;
+*                         POWER                                      *;
+*                                                                    *;
+* Define POWER command.                                              *;
+* User will only have to type RUN POWER. The input matrices will not *;
+* have to be listed in the RUN statement.                            *;
+**********************************************************************;
+
+START POWER;
+CALL _POWER (_HOLDPOW,_HOLDNM,_POWCHK);
+
+FINISH; *POWER;
+
