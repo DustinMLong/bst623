@@ -1,0 +1,244 @@
+% -*- LaTeX -*-
+
+% Add proof example to 54
+% Resolution: inference rule, proof trees, semantic interpretation,
+% rule interpretation, soundness and completeness
+\documentclass[handout,x11names,unknownkeysallowed]{beamer}
+\usepackage{beamerthemeUAB}
+\usepackage{verbatim}
+\usepackage{color}
+\usepackage{multirow}
+\usepackage{cite}
+%\usepackage{amsthm}
+%\setbeamertemplate{theorems}[numbered]
+%\newtheorem{proposition}{Proposition}
+%\newtheorem{cor}{Corollary}
+% -*- LaTeX -*-
+
+\usepackage{subfigure,bm}
+\usepackage{multicol}
+\usepackage{amsmath}
+\usepackage{epsfig}
+\usepackage{graphicx}
+\usepackage[all,knot]{xy}
+\usepackage{marvosym}
+\xyoption{arc}
+\usepackage{url}
+\usepackage{multimedia}
+\usepackage{hyperref}
+\usepackage[english]{babel}
+\usepackage[latin1]{inputenc}
+\usepackage{times}
+\usepackage{caption}
+\usepackage{kbordermatrix}
+%\usepackage[T1]{fontenc}
+% Or whatever. Note that the encoding and the font should match. If T1
+% does not look nice, try deleting the line with the fontenc.
+\newcommand{\conv}{\stackrel{\mathbb{D}}{\longrightarrow}}
+\newcommand{\cons}{\stackrel{p}{\longrightarrow}}
+\newcommand{\nc}{\newpage \clearpage}
+\newcommand{\etal}{\textit{et al.}}
+
+\def\boldp{\mathbf p}
+\def\btheta{\bm \theta}
+\def\bpi{\bm \pi}
+
+\title[] % (Called "`Short Title"', optional, use only with long paper titles)
+{Correlation}
+
+%\subtitle{EPID 753} % (optional)
+
+\author[Dustin Long, PhD] % (optional, use only with lots of authors)
+{Dustin~Long, PhD}
+
+
+\institute[UAB]
+{
+  Department of Biostatistics\\
+	University of Alabama at Birmingham
+
+}
+
+\def\insertcopyright{$\copyright$ 2019 by Dustin Long}
+\def\insertslideinfo{\insertshorttitle}
+
+
+\subject{Correlation}
+% This is only inserted into the PDF information catalog. Can be left
+% out. 
+
+
+
+% This code is not needed since the logo is on every page in the lower left-hand corner
+%\pgfdeclareimage[height=0.5cm]{university-logo}{unc-gillings-school-of-public-health-logo.png}
+%\logo{\pgfuseimage{university-logo}}
+
+
+% Delete this, if you do not want the table of contents to pop up at
+% the beginning of each subsection:
+%\AtBeginSubsection[]
+%{
+%   \begin{frame}<beamer>
+%     \frametitle{Outline}
+%     \tableofcontents[currentsection,currentsubsection]
+%   \end{frame}
+% }
+
+
+% If you wish to uncover everything in a step-wise fashion, uncomment
+% the following command: 
+
+%\beamerdefaultoverlayspecification{<+->}
+
+%\input macros.tex
+
+\date[Introduction]{October 24, 2019}
+
+\newcommand{\beamitem}{\begin{itemize}[<+-|alert@+>]}
+%\newcommand{\beamitem}{\begin{itemize}}
+%\newcommand{\etal}{\textit{et al.}}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{document}
+\bibliographystyle{plain}
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}
+Outline:
+\begin{itemize}
+\item Correlation
+
+\end{itemize}
+
+\end{frame}
+
+
+\begin{frame}
+\beamitem
+\item If $Y,X \sim N(\bm\mu,\bm\Sigma)$ then $Y|X=x \sim N(\mu_{Y|X=x}, \sigma^2_{Y|X=x})$
+\item where $\mu_{Y|X=x} = \mu_y + \rho\frac{\sigma_Y}{\sigma_X}(X-\mu_x)$ and $\sigma^2_{Y|X=x} = \sigma^2_{Y}(1-\rho^2)$ and $\rho$ is the correlation between $Y$ and $X$
+\item If we let $\beta_1 = \rho(\sigma_y/\sigma_x)$ and $\beta_0 = \mu_y  - \beta_1\mu_x$ we have fit a straight line assuming $\mu_{Y|X=x} = \beta_0 + \beta_1 x$
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\beamitem
+\item Thus, we can think of a correlation matrix for multiple regression
+\item \[
+   \kbordermatrix{
+    & Y & X_1 & X_2 & X_3 & X_4 \\
+    Y & 1 & \rho_1 & \rho_2 & \rho_3 & \rho_4 \\
+    X_1 &  & 1 & \rho_{12} & \rho_{13} & \rho_{14} \\
+		X_2 &  &  & 1 & \rho_{23} & \rho_{24} \\
+    X_3 &  &  &  & 1 & \rho_{34} \\
+    X_4 &  &  &  &  & 1
+  }
+\]
+
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+library(MASS)\\
+library(plotly)\\
+library(dplyr)\\
+mu = c(0,0)\\
+rho = 0.2\\
+sigma = matrix(c(5,rho,rho,1),ncol=2,nrow=2,byrow=T)\\
+
+dat = mvrnorm(n=10000,mu,sigma)\\
+
+bob = kde2d(x=dat[,1],y=dat[,2])\\
+
+image(bob,col=topo.colors(100))\\
+contour(bob,add=T)\\
+
+plot\_ly(x = bob\$x, y = bob\$y, z = bob\$z) \%$>$\% add\_surface()
+
+\end{frame}
+
+\begin{frame}
+
+proc kde data=example; \\
+~~	bivar wgt age / plots=all;\\
+run;
+
+\end{frame}
+
+
+
+\begin{frame}
+\beamitem
+\item Simple correlations can be calculated in different ways
+\item Pearson correlation is related to simple linear regression as seen above
+\item $r_p = \frac{\sum(Y_i-\bar{Y})(\sum(X_{i}-\bar{X})}{\sqrt{\sum(Y_i-\bar{Y})^2 \sum(Y_i-\bar{Y})^2}}$
+\item Recall from above $\beta_1 = \rho(\sigma_y/\sigma_x)$
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\beamitem
+\item Corrected Sums of Squares: CSS, SS from model with intercept
+\item Uncorrected SS: SS from model without intercept
+\item Corrected $R^2$ uses CSS, Uncorrected $R^2$ uses USS
+\item Both forms estimate $\rho^2$
+\item $R^2 = \frac{SSM}{SST}$
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\beamitem
+\item $R^2$ is the amount of variability in the outcome that is explained by the model
+\item Recall that $SSM + SSE = SST$, thus $R^2= 1 - \frac{SSE}{SST}$
+\item This is deceptive as $R^2$ always increases with more covariates, thus adding any variable will increase $R^2$
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}
+
+\beamitem
+\item $R^2$ does not measure the magnitude of the slope just the strength of association
+\item It does not measure the appropriateness of the straight line model
+\item Test for $R^2$, $H_0:~\rho=0$ is equivalent to $H_0:~\beta_1=0$ for simple linear regression
+\item Test statistic is: $T = \frac{R\sqrt{n-2}}{\sqrt{1-R^2}}$
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+
+\beamitem
+\item You can calculate partial correlations, or partial $R^2$ values
+\item $R^2_{X_1}$, $R^2_{X_2|X_1}$, etc. can be calculated
+\item SAS PCORR1 in PROC REG gives variables-added-in-order partial $R^2$ and PCORR2 gives variables-added-last $R^2$
+\item These partial correlations measure the strength of the linear relationship between $Y$ and $X_1$ while controlling for the other variables.
+\item Can be tested with partial $F$ tests which are located with either the TYPE I or TYPE III SS table based on which correlation you are interested in
+\item $R^2_{X_j|\bm{X}_{-j}} = \frac{SS_{X_j | \bm{X}_{-j}}}{SS_{X_j | \bm{X}_{-j}} + SSE}$
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}
+\beamitem
+\item There exist multiple partial correlations, $R^2_{X_2,X_3|X_1}$, which is the strength of association between $Y$ and $X_1$ and $X_2$ controlling for $X_3$
+\item Frequently used when covariates are used together, such as polynomials
+\item Use the multiple partial $F$ test, which needs to be calculated by hand
+\item To test $H_0: \rho_{X_2,X_3|X_1} = 0$, use $F= \frac{(SSM_{full} - SS_{X_1})/2}{MSE_{full}}$ which is an $F$ distribution with 2 and $n-p-1$ d.f. under $H_0$
+\end{itemize}
+\end{frame}
+
+
+\begin{frame}
+\beamitem
+\item Spearman correlation is based on the ranked data but is still a linear correlation
+\item Calculate rank of both $Y$ ($R_{y}$) and $X$ ($R_{x}$)
+\item $r_s = \frac{\sum(R_{iy}-\bar{R}_{y})(\sum(R_{ix}-\bar{R}_{x})}{\sqrt{\sum(R_{iy}-\bar{R}_{y})^2 \sum(R_{ix}-\bar{R}_{x})^2}}$
+\item Can be considered the pearson correlation of the ranks of $Y$ and $X$
+\item $t=\frac{r_s\sqrt{n-2}}{\sqrt{1-r_2^2}}$ which is a $t$ with $n-2$ degrees of freedom
+\end{itemize}
+\end{frame}
+
+
+\end{document}
